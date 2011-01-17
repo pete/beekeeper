@@ -48,5 +48,5 @@ task(:install => :package) {
 
 desc "Runs IRB, automatically require()ing #{spec.name}."
 task(:irb) {
-	exec "irb -Ilib -r rubygems -r#{spec.name}"
+	exec "irb -Ilib -r#{spec.name}"
 }
