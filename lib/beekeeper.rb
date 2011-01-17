@@ -95,6 +95,10 @@ module Beekeeper
 			delete("/apps/#{name}.json?token=#{auth_token}")
 		end
 
+		def delete_all_apps
+			apps.map { |a| delete_app a['name'] }
+		end
+
 		# Returns a list of applications deployed to Beehive and information
 		# about them.
 		def apps
@@ -110,7 +114,7 @@ module Beekeeper
 			}.body)['bees'] rescue nil
 		end
 
-		private
+		#private
 
 		# Returns [email, password] or nil.
 		def load_auth
@@ -150,7 +154,11 @@ module Beekeeper
 		def http
 			Net::HTTP.new(*opts[:server]).start { |http|
 				http.use_ssl = opts[:ssl]
-				yield http if block_given?
+				if block_given?
+					yield http
+				else
+					http
+				end
 			}
 		end
 
