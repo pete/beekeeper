@@ -20,7 +20,7 @@ module Beekeeper
 	# above):
 	#	c.authenticate!	# Loads auth data from a file, since we told it to.
 	# Create a basic rack application, now that we're authenticated:
-	#	c.create_app 'super-app', 'rack', 'git://example.com/git/super-app.git'
+	#	c.create_app 'super-app', 'rack'
 	# Ask the server what the app looks like:
 	#	p c.apps['super-app']
 	class Client
@@ -36,6 +36,9 @@ module Beekeeper
 			:server => ['localhost', 4999],
 			# Use HTTPS when talking to the server?
 			:ssl => false,
+			# Providing an object that responds to :'<<' will get you some
+			# logging.
+			:debug_out => nil,
 		}
 
 		attr_accessor :opts, :auth_token
@@ -65,29 +68,21 @@ module Beekeeper
 			!!grab_token!(email, pass)
 		end
 
-		# Creates an application with the specified name and template, and tell
-		# the server that it can be found at repo_url (which must be a git
-		# repository; if the repository is local, it must be written as a
-		# "file://" URL).
-		def create_app name, template, repo_url
+		# Creates an application with the specified name and template.
+		def create_app name, template
 			data = {
 				'name' => name,
 				'template' => template,
-				'repo_url' => repo_url,
 
 				'token' => auth_token,
 			}.to_json
 
-			http { |h|
-				JSON.parse(h.post('/apps.json', data).body) rescue nil
-			}
+			JSON.parse(post('/apps.json', data).body) rescue nil
 		end
 
 		def update_app name, opts = {}
 			data = {'token' => auth_token}.merge(opts).to_json
-			http { |h|
-				JSON.parse(h.put("/apps/#{name}.json", data).body) rescue nil
-			}
+			JSON.parse(put("/apps/#{name}.json", data).body) rescue nil
 		end
 
 		# Deletes the named application.
@@ -102,19 +97,39 @@ module Beekeeper
 		# Returns a list of applications deployed to Beehive and information
 		# about them.
 		def apps
-			JSON.parse(http { |h|
-				h.get("/apps.json?token=#{auth_token}")
-			}.body)['apps'] rescue nil
+			get_bh_collection 'apps'
+		end
+
+		def app name
+			begin
+				r = get("/apps/#{name}.json?token=#{auth_token}")
+				JSON.parse(r.body)['application']
+			rescue
+			end
 		end
 
 		# Returns a list of bees and some diagnostics about them.
 		def bees
-			JSON.parse(http { |h|
-				h.get("/bees.json?token=#{auth_token}")
-			}.body)['bees'] rescue nil
+			get_bh_collection 'bees'
 		end
 
-		#private
+		private
+
+		def get_bh_collection type
+			resp = get("/#{type}.json?token=#{auth_token}")
+			begin
+				c = JSON.parse(resp.body)[type]
+				if c == ''
+					[]
+				else
+					c
+				end
+			rescue
+				# TODO: Figure out appropriate error paths for this sort of
+				# thing.
+			end
+		end
+
 
 		# Returns [email, password] or nil.
 		def load_auth
@@ -154,13 +169,26 @@ module Beekeeper
 		def http
 			Net::HTTP.new(*opts[:server]).start { |http|
 				http.use_ssl = opts[:ssl]
-				if block_given?
-					yield http
-				else
-					http
+				r = yield http
+				case r.code.to_i
+				when 100..199
+					r # I don't anticipate getting this from Beehive.
+				when 200..299
+					r
+				when 300..399
+					r # TODO:  Handle redirects
+				when 401
+					raise Beekeeper::AuthenticationError,
+						"Authorization data invalid."
+				when 400, 402..499
+					r # TODO:  These need handling internally
+				when 500..599
+					r # TODO:  Need to account for problems in Beehive.
 				end
 			}
 		end
+
+		# These, so far, are the only methods I think Beehive uses:
 
 		def get path
 			http { |h| h.get path }
@@ -179,6 +207,7 @@ module Beekeeper
 		end
 	end
 
+	# This class is for command-line handling.  It's not yet written.
 	class Commands
 	end
 end
